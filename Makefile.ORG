@@ -1,0 +1,33 @@
+# `Makefile' - Use with GNU make to build echoserv
+#
+#   This file is part of version 1 of the sockio test server.
+#   Read the `License' file for terms of use and distribution.
+#   Copyright 2002, Canada-France-Hawaii Telescope, daprog@cfht.hawaii.edu.
+#
+# ___This header automatically generated from `Index'. Do not edit it here!___
+
+include ../Make.Common
+# CCWARN += $(WERROR)
+
+CCINCS += -I/opt/EDTpdv
+CCLIBS += -lpdv -lpthread -ldl -lm -lcfht -lssapi -lsockio -lss -lcli -lfh -lmpfit /opt/EDTpdv/libpdv.a
+
+#$(EXECNAME): $(OBJS) libcfht.a libssapi.a libsockio.a libss.a libcli.a libfh.a /opt/EDTpdv/libpdv.a
+$(EXECNAME): $(OBJS) 
+include ../Make.Common
+
+# Dependencies by Make.Common $Revision: 2.17 $
+
+$(OBJ)/raptorServ.o: raptorServ.c cli/cli.h \
+ missing_protos.h cfht/cfht.h \
+ fh/fh.h fh/fh_registry.h \
+ ssapi/ss_paths.h sockio/sockserv.h \
+ sockio/sbuf.h sockio/sockio.h \
+ ss/linked_list.h mpfit/mpfit.h \
+ \
+ \
+ \
+ \
+ \
+ \
+

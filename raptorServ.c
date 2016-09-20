@@ -3079,7 +3079,7 @@ clientReceive(void *client, char *buffer)
 	   serv_info->win_y0=y0;
 
 	   cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-		   "(%s:%d) image ROI setting is: x0=%i x1=%i y0=%i y1=%i",
+		   "(%s:%d) image ROI setting is: x0=%i y0=%i x1=%i y1=%i",
 		   __FILE__, __LINE__, x0, y0, x1, y1);
 	   sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
 	   cfht_logv(CFHT_MAIN, CFHT_DEBUG,

@@ -3038,6 +3038,11 @@ clientReceive(void *client, char *buffer)
 		 return;
 	   }
 
+	   /* Adding serv_info->fits_comment, so that this variable won't NULL.  This will enable 
+	    *   FITS keyword ETYPE=GUIDE in line 2300 
+	    */
+	   serv_info->fits_comment = cli_strdup("GUIDING");
+
 	   s_width = (x1 - x0)+1;
 	   s_height = (y1 - y0)+1;
 

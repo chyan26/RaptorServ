@@ -120,7 +120,7 @@
  * if DEBUG is defined, some printf are done on a file and on stderr
  * so this is memory and time consuming
  */
-#define DEBUG
+//#define DEBUG
 
 /*
  * BEWARE THAT
@@ -2940,6 +2940,12 @@ clientReceive(void *client, char *buffer)
          "SIM_STAR is defined and the centroid algorithm is NOT called",
 	 __FILE__, __LINE__);
 #endif
+#ifdef DEBUG
+       cfht_logv(CFHT_MAIN, CFHT_LOGONLY, "(%s:%d) Beware that "
+         "DEBUG is defined and status / setup positions are written in "
+         "Outputs.csv file", __FILE__, __LINE__);
+#endif
+
       } else if ((!strcasecmp(cargv[0], "OFF")) && (cargc == 1)) {
          /* Stop the ISU */
          if (stop_isu() != PASS) {

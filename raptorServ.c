@@ -2303,7 +2303,9 @@ writeFITSImage(unsigned char *image_p) {
 		 "Sequence details");
    }
    else {
-      fh_set_str(hu, FH_AUTO, "ETYPE", "IMAGING", "Exposure type");
+// REMETTRE IMAGING LARRIEU
+//      fh_set_str(hu, FH_AUTO, "ETYPE", "IMAGING", "Exposure type");
+      fh_set_str(hu, FH_AUTO, "ETYPE", "GUIDE", "Exposure type");
       fh_set_str(hu, FH_AUTO, "IMGINFO", "Random imaging sequence", 
 		 "Sequence details");
    }
@@ -3023,7 +3025,7 @@ clientReceive(void *client, char *buffer)
 	   int s_width,s_height;
 	   char *stop_at = NULL;
 
-	   if (cargc != 5 ){
+	   if (cargc != 4 ){
 		   sprintf(buffer, "%c %s \"Input FOUR numbers to set ROI.\"",
 			  FAIL_CHAR, ROI_CMD);
 		   cfht_logv(CFHT_MAIN, CFHT_DEBUG,
@@ -3047,7 +3049,7 @@ clientReceive(void *client, char *buffer)
 	   /* Adding serv_info->fits_comment, so that this variable won't NULL.  This will enable 
 	    *   FITS keyword ETYPE=GUIDE in line 2300 
 	    */
-	   serv_info->fits_comment = cli_strdup("GUIDING");
+	   serv_info->fits_comment = cli_strdup("GUIDE");
 
 	   s_width = (x1 - x0)+1;
 	   s_height = (y1 - y0)+1;

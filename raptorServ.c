@@ -20,6 +20,7 @@
  *    Parts of the code related to ISU (Image Stabilization Unit) control
  *    were authored by Marie Larrieu. They call functions from the libisu
  *    library, which is a PowerDAQ interface to the ISU steering mechanism.
+ * 
  * HISTORY
  *
  * $Log$
@@ -120,7 +121,7 @@
  * if DEBUG is defined, some printf are done on a file and on stderr
  * so this is memory and time consuming
  */
-#define DEBUG
+//#define DEBUG
 
 /*
  * BEWARE THAT
@@ -128,7 +129,7 @@
  * and a software gaussian star simulation is sent to the ISU 
  * This definition should be COMMENTED FOR NORMAL OPERATIONS !
  */
-#define SIM_STAR
+//#define SIM_STAR
 
 /*
  * Per-client information.  Multiple clients can stay connected to the
@@ -2303,7 +2304,9 @@ writeFITSImage(unsigned char *image_p) {
 		 "Sequence details");
    }
    else {
-      fh_set_str(hu, FH_AUTO, "ETYPE", "IMAGING", "Exposure type");
+// REMETTRE IMAGING LARRIEU
+//      fh_set_str(hu, FH_AUTO, "ETYPE", "IMAGING", "Exposure type");
+      fh_set_str(hu, FH_AUTO, "ETYPE", "GUIDE", "Exposure type");
       fh_set_str(hu, FH_AUTO, "IMGINFO", "Random imaging sequence", 
 		 "Sequence details");
    }
@@ -2940,6 +2943,12 @@ clientReceive(void *client, char *buffer)
          "SIM_STAR is defined and the centroid algorithm is NOT called",
 	 __FILE__, __LINE__);
 #endif
+#ifdef DEBUG
+       cfht_logv(CFHT_MAIN, CFHT_LOGONLY, "(%s:%d) Beware that "
+         "DEBUG is defined and status / setup positions are written in "
+         "Outputs.csv file", __FILE__, __LINE__);
+#endif
+
       } else if ((!strcasecmp(cargv[0], "OFF")) && (cargc == 1)) {
          /* Stop the ISU */
          if (stop_isu() != PASS) {
@@ -3017,7 +3026,7 @@ clientReceive(void *client, char *buffer)
 	   int s_width,s_height;
 	   char *stop_at = NULL;
 
-	   if (cargc != 5 ){
+	   if (cargc != 4 ){
 		   sprintf(buffer, "%c %s \"Input FOUR numbers to set ROI.\"",
 			  FAIL_CHAR, ROI_CMD);
 		   cfht_logv(CFHT_MAIN, CFHT_DEBUG,
@@ -3041,7 +3050,7 @@ clientReceive(void *client, char *buffer)
 	   /* Adding serv_info->fits_comment, so that this variable won't NULL.  This will enable 
 	    *   FITS keyword ETYPE=GUIDE in line 2300 
 	    */
-	   serv_info->fits_comment = cli_strdup("GUIDING");
+	   serv_info->fits_comment = cli_strdup("GUIDE");
 
 	   s_width = (x1 - x0)+1;
 	   s_height = (y1 - y0)+1;
@@ -3649,17 +3658,17 @@ main(int argc, const char* argv[])
 	  *  Starting the centroid calculation
 	  */
 	 if (serv_info->guide_on == TRUE){
-		 if (serv_info->fwhm_flag == 0){
-		   calculatePointFWHM((unsigned short *)image_p, GUIDE_SIZE_X, GUIDE_SIZE_Y);
-		   serv_info->fwhm_flag=1;
+	    if (serv_info->fwhm_flag == 0){
+	       calculatePointFWHM((unsigned short *)image_p,
+                                  GUIDE_SIZE_X, GUIDE_SIZE_Y);
+	       serv_info->fwhm_flag=1;
 
-		   //fprintf(stderr, "%7.3f %7.3f \n",fwhm_x,fwhm_y);
-		 }
+	       //fprintf(stderr, "%7.3f %7.3f \n",fwhm_x,fwhm_y);
+	    }
 
-
-	       /*
-		*  Calculate the centroid
-		*/
+            /*
+	     *  Calculate the centroid
+	     */
 #ifndef SIM_STAR
 	   //calculateCentroid((unsigned short *)image, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
 	   calculateCentroidMPFIT((unsigned short *)image_p, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
@@ -3766,7 +3775,7 @@ main(int argc, const char* argv[])
 #else
                /* Converting pixel values to angle in arcsec */
                xangle=(xc-(GUIDE_SIZE_X/2))* PIXSCALE;
-               yangle=(yc-(GUIDE_SIZE_Y/2))* PIXSCALE;
+               yangle=(31 - yc - (GUIDE_SIZE_Y/2))* PIXSCALE;
 #endif
 
                /* Filling in the thread_data structure */
@@ -3777,17 +3786,18 @@ main(int argc, const char* argv[])
                else {
                   thread_data.arg1 = (double)DEFAULT_FRAME_RATE;
                }
-               /* arg2 is last x position in mrad */
+               /* arg2 is last x true position in mrad */
                thread_data.arg2 = last_x_angle;
-               /* arg3 is last y position in mrad */ 
+               /* arg3 is last y true position in mrad */ 
                thread_data.arg3 = last_y_angle;
                next_x_angle = (double)xangle;
                next_y_angle = (double)yangle;
+               arcsec_to_mrad(&next_x_angle, &next_y_angle);
                setup_to_true(&next_x_angle, &next_y_angle);
                /* arg4 is next x position in mrad */
-               thread_data.arg4 = next_x_angle;
+               thread_data.arg4 = last_x_angle - next_x_angle;
                /* arg5 is next y position in mrad */
-               thread_data.arg5 = next_y_angle;
+               thread_data.arg5 = last_y_angle - next_y_angle;
 
               /*
 	       *   Sending ISU corrections

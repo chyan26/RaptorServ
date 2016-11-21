@@ -20,6 +20,7 @@
  *    Parts of the code related to ISU (Image Stabilization Unit) control
  *    were authored by Marie Larrieu. They call functions from the libisu
  *    library, which is a PowerDAQ interface to the ISU steering mechanism.
+ * 
  * HISTORY
  *
  * $Log$
@@ -128,7 +129,7 @@
  * and a software gaussian star simulation is sent to the ISU 
  * This definition should be COMMENTED FOR NORMAL OPERATIONS !
  */
-#define SIM_STAR
+//#define SIM_STAR
 
 /*
  * Per-client information.  Multiple clients can stay connected to the
@@ -3657,17 +3658,17 @@ main(int argc, const char* argv[])
 	  *  Starting the centroid calculation
 	  */
 	 if (serv_info->guide_on == TRUE){
-		 if (serv_info->fwhm_flag == 0){
-		   calculatePointFWHM((unsigned short *)image_p, GUIDE_SIZE_X, GUIDE_SIZE_Y);
-		   serv_info->fwhm_flag=1;
+	    if (serv_info->fwhm_flag == 0){
+	       calculatePointFWHM((unsigned short *)image_p,
+                                  GUIDE_SIZE_X, GUIDE_SIZE_Y);
+	       serv_info->fwhm_flag=1;
 
-		   //fprintf(stderr, "%7.3f %7.3f \n",fwhm_x,fwhm_y);
-		 }
+	       //fprintf(stderr, "%7.3f %7.3f \n",fwhm_x,fwhm_y);
+	    }
 
-
-	       /*
-		*  Calculate the centroid
-		*/
+            /*
+	     *  Calculate the centroid
+	     */
 #ifndef SIM_STAR
 	   //calculateCentroid((unsigned short *)image, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
 	   calculateCentroidMPFIT((unsigned short *)image_p, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
@@ -3774,7 +3775,7 @@ main(int argc, const char* argv[])
 #else
                /* Converting pixel values to angle in arcsec */
                xangle=(xc-(GUIDE_SIZE_X/2))* PIXSCALE;
-               yangle=(yc-(GUIDE_SIZE_Y/2))* PIXSCALE;
+               yangle=(31 - yc - (GUIDE_SIZE_Y/2))* PIXSCALE;
 #endif
 
                /* Filling in the thread_data structure */
@@ -3785,17 +3786,18 @@ main(int argc, const char* argv[])
                else {
                   thread_data.arg1 = (double)DEFAULT_FRAME_RATE;
                }
-               /* arg2 is last x position in mrad */
+               /* arg2 is last x true position in mrad */
                thread_data.arg2 = last_x_angle;
-               /* arg3 is last y position in mrad */ 
+               /* arg3 is last y true position in mrad */ 
                thread_data.arg3 = last_y_angle;
                next_x_angle = (double)xangle;
                next_y_angle = (double)yangle;
+               arcsec_to_mrad(&next_x_angle, &next_y_angle);
                setup_to_true(&next_x_angle, &next_y_angle);
                /* arg4 is next x position in mrad */
-               thread_data.arg4 = next_x_angle;
+               thread_data.arg4 = last_x_angle - next_x_angle;
                /* arg5 is next y position in mrad */
-               thread_data.arg5 = next_y_angle;
+               thread_data.arg5 = last_y_angle - next_y_angle;
 
               /*
 	       *   Sending ISU corrections

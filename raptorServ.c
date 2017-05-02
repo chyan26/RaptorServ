@@ -23,8 +23,11 @@
  *    is a PowerDAQ interface to the ISU steering mechanism.
  * 
  * HISTORY
- * mlarrieu    12 Apr 2017     Removed the Y axis flip that was applied to 
- *                             the image before it was sent to the fits pipe
+ * mlarrieu  12 Apr 2017 Remove the Y axis flip that was applied to 
+ *                       the image before it was sent to the fits pipe
+ *                       Improve DEBUG features
+ * mlarrieu  14 Apr 2017 Add an option r to reset the roi
+ *                       
  *
  * $Log$
  *
@@ -240,7 +243,7 @@ static void *home_isu_thread()
 #ifdef DEBUG
       cfht_logv(CFHT_MAIN, CFHT_LOGONLY, "(%s:%d) Beware that "
 	    "DEBUG is defined and status / setup positions are written in "
-	    "Outputs.csv file", __FILE__, __LINE__);
+	    "outputs csv file", __FILE__, __LINE__);
 #endif // DEBUG
 
    }
@@ -257,6 +260,14 @@ static void *set_analog_slope_thread(void* p_args)
 {
    if (p_args != NULL)
    {
+#ifdef DEBUG
+/*
+      struct timeval tstart, tend;
+      struct timezone tz;
+      gettimeofday(&tstart,&tz);
+*/
+#endif
+
       thdata *data;
       data = (thdata *) p_args;
       if (set_analog_slope(data->arg1,
@@ -268,6 +279,14 @@ static void *set_analog_slope_thread(void* p_args)
 	       __FILE__, __LINE__, __FUNCTION__, data->arg1,
 	       data->arg2, data->arg3, data->arg4, data->arg5);
       }
+#ifdef DEBUG
+/*
+      gettimeofday(&tend,&tz);
+      fprintf (stderr, "%.2f\n",
+               (tend.tv_sec * 1E3 + tend.tv_usec * 1E-3)- 
+               (tstart.tv_sec * 1E3 + tstart.tv_usec * 1E-3));
+*/
+#endif
    }
    else {
       cfht_logv(CFHT_MAIN, CFHT_ERROR,
@@ -2523,7 +2542,7 @@ writeFITSImage(unsigned char *image_p) {
 			cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
 			      "(%s:%d) unable to write FITS header"
 			      " (fh_error = %d)\n", __FILE__, __LINE__,
-                              fh_error);
+			      fh_error);
 			cfht_logv(CFHT_MAIN, CFHT_LOGONLY, 
 			      "%s (errno=%d)", strerror(errno), errno);
 			return FAIL;
@@ -2533,15 +2552,15 @@ writeFITSImage(unsigned char *image_p) {
 		      * Write out the image data
 		      */
 		     if ((fh_error = fh_write_padded_image(hu, fd,
-                                 (unsigned short *)image_p, 
-		     		 serv_info->image_width *
-		     		 serv_info->image_height *
-		     		 sizeof(uint16_t), FH_TYPESIZE_16U)) 
-		            != FH_SUCCESS) {
+				 (unsigned short *)image_p, 
+				 serv_info->image_width *
+				 serv_info->image_height *
+				 sizeof(uint16_t), FH_TYPESIZE_16U)) 
+			   != FH_SUCCESS) {
 			cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
 			      "(%s:%d) unable to write FITS image data"
 			      " (fh_error = %d)\n", __FILE__, __LINE__,
-                              fh_error);
+			      fh_error);
 			return FAIL;
 		     }
 
@@ -2718,11 +2737,12 @@ clientReceive(void *client, char *buffer)
        * Handle a query of the frame rate
        */
       if (!strcasecmp(buf_p, FRAMERATE_CMD)) {
-	 double frame_rate;
-	 char* camera_response=NULL;
 	 sprintf(buffer, "%c %s", PASS_CHAR, FRAMERATE_CMD);
 	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
 	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+
+	 char* camera_response=NULL;
+	 double frame_rate;
 
 	 /* Make sure the connection with camera is still alive */
 	 if (checkCameraStatus(&camera_response) != PASS) {
@@ -2730,7 +2750,6 @@ clientReceive(void *client, char *buffer)
 		  "(%s:%d) there is no response from the camera when checking"
 		  " the camera status - exiting", __FILE__, __LINE__);
 	 }
-
 	 if (getGuiderFrameRate(&frame_rate) != PASS) {
 	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
 		  "(%s:%d) unable to read frame rate from the"
@@ -3162,7 +3181,7 @@ clientReceive(void *client, char *buffer)
 #ifdef DEBUG
 	       cfht_logv(CFHT_MAIN, CFHT_LOGONLY, "(%s:%d) Beware that "
 		     "DEBUG is defined and status / setup positions are written in "
-		     "Outputs.csv file", __FILE__, __LINE__);
+		     "outputs csv file", __FILE__, __LINE__);
 #endif //DEBUG
 	    }
 	 }
@@ -3203,7 +3222,7 @@ clientReceive(void *client, char *buffer)
 	 /* Check NULLX&Y range */
 	 if (atof(cargv[0]) < 0.0 || atof(cargv[0]) > 31.0 || atof(cargv[1]) < 0.0 || atof(cargv[1]) > 31.0){
 	    sprintf(buffer, "%c %s \"NULL positions should be in [0;31]\"",
-		  FAIL_CHAR, ROI_CMD);
+		  FAIL_CHAR, GUIDE_CMD);
 	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
 		  "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
 	    return;
@@ -3270,90 +3289,119 @@ clientReceive(void *client, char *buffer)
       char *stop_at = NULL;
 
       /* Check number and nature of args */
-      if (cargc != 2 || isInt(cargv[0]) == 0 || isInt(cargv[1]) == 0){
-	 sprintf(buffer, "%c %s \"Input TWO NUMBERS to set ROI.\"",
-	       FAIL_CHAR, ROI_CMD);
+      if (cargc == 1 && strcasecmp(cargv[0], "r") == 0) {
+         /* Case reset roi */
+         if (pdv_enable_roi(serv_info->pdv_p, 0) != 0){
+            cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+                 "(%s:%d) unable to reset image ROI",
+                 __FILE__, __LINE__);
+            sprintf(buffer, "%c %s \"unable to reset image ROI\"",
+                 FAIL_CHAR, ROI_CMD);
+            cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+                 "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+            return;
+         }
+         serv_info->image_width=SIZE_X;
+         serv_info->image_height=SIZE_Y;
+         serv_info->win_x0=0;
+         serv_info->win_y0=0;
+   
+         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	    "(%s:%d) image ROI setting is reset to full frame %d per %d",
+   	    __FILE__, __LINE__, SIZE_X, SIZE_Y);
+         sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
+         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   
+         return;
+      }
+      else if (cargc == 2 && isInt(cargv[0]) && isInt(cargv[1])){
+         /* Case set roi */
+         x0 = strtol(cargv[0], &stop_at,10);
+         y0 = strtol(cargv[1], &stop_at,10);
+   
+         /* Make sure the set point is valid */
+         if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
+   	 sprintf(buffer, "%c %s \"Invalid Argument Specified\"",
+   	       FAIL_CHAR, ROI_CMD);
+   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   	 return;
+         }
+   
+         /* Make sure the value is compliant with the camera field of view */
+         if (x0 < 0 || x0 > SIZE_X - GUIDE_SIZE_X ||
+   	    y0 < 0 || y0 > SIZE_Y - GUIDE_SIZE_Y ) {
+   	 sprintf(buffer, "%c %s \"The selected x0 and y0 are out of range [0;%d] [0;%d]\"",
+   	       FAIL_CHAR, ROI_CMD, SIZE_X - GUIDE_SIZE_X, SIZE_Y - GUIDE_SIZE_Y);
+   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   	 return;
+         }
+         x1 = x0 + 31;
+         y1 = y0 + 31;
+   
+         /*
+   	 In a former version from Chi-Hung, roi other than 32 x 32 were allowed.
+   	 This is now commented.
+   	 s_width = (x1 - x0)+1;
+   	 s_height = (y1 - y0)+1;
+   
+   	 if (s_height<2 && s_width<2){
+   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+   	 "(%s:%d) image size incorrect, check ROI setting",
+   	 __FILE__, __LINE__);
+   	 sprintf(buffer, "%c %s \"image size incorrect, check ROI setting",
+   	 FAIL_CHAR, ROI_CMD);
+   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	 "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   	 return;
+   	 }
+          */
+         if (pdv_set_roi(serv_info->pdv_p,  x0, GUIDE_SIZE_X, y0, GUIDE_SIZE_Y) != 0){
+   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+   	       "(%s:%d) unable to set image ROI",
+   	       __FILE__, __LINE__);
+   	 sprintf(buffer, "%c %s \"unable to set image ROI\"",
+   	       FAIL_CHAR, ROI_CMD);
+   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   	 return;
+   
+         }
+         if (pdv_enable_roi(serv_info->pdv_p, 1) != 0){
+   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+   	       "(%s:%d) set ROI failed",
+   	       __FILE__, __LINE__);
+   	 sprintf(buffer, "%c %s \"set ROI failed\"",
+   	       FAIL_CHAR, ROI_CMD);
+   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   	 return;
+   
+         }
+         serv_info->image_width=GUIDE_SIZE_X;
+         serv_info->image_height=GUIDE_SIZE_Y;
+         serv_info->win_x0=x0;
+         serv_info->win_y0=y0;
+   
+         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	    "(%s:%d) image ROI setting is: x0=%i y0=%i x1=%i y1=%i",
+   	    __FILE__, __LINE__, x0, y0, x1, y1);
+         sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
+         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+   	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+   
+         return;
+      }
+      else {
+         /* Case unacceptable command */
+	 sprintf(buffer, "%c %s \"Input r to reset ROI, or two numbers "
+                                  "to set ROI\"", FAIL_CHAR, ROI_CMD);
 	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
 	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
 	 return;
       }
-
-      x0 = strtol(cargv[0], &stop_at,10);
-      y0 = strtol(cargv[1], &stop_at,10);
-
-      /* Make sure the set point is valid */
-      if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
-	 sprintf(buffer, "%c %s \"Invalid Argument Specified\"",
-	       FAIL_CHAR, ROI_CMD);
-	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-	 return;
-      }
-
-      /* Make sure the value is compliant with the camera field of view */
-      if (x0 < 0 || x0 > SIZE_X - GUIDE_SIZE_X ||
-	    y0 < 0 || y0 > SIZE_Y - GUIDE_SIZE_Y ) {
-	 sprintf(buffer, "%c %s \"The selected x0 and y0 are out of range [0;%d] [0;%d]\"",
-	       FAIL_CHAR, ROI_CMD, SIZE_X - GUIDE_SIZE_X, SIZE_Y - GUIDE_SIZE_Y);
-	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-	 return;
-      }
-      x1 = x0 + 31;
-      y1 = y0 + 31;
-
-      /*
-	 In a former version from Chi-Hung, roi other than 32 x 32 were allowed.
-	 This is now commented.
-	 s_width = (x1 - x0)+1;
-	 s_height = (y1 - y0)+1;
-
-	 if (s_height<2 && s_width<2){
-	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-	 "(%s:%d) image size incorrect, check ROI setting",
-	 __FILE__, __LINE__);
-	 sprintf(buffer, "%c %s \"image size incorrect, check ROI setting",
-	 FAIL_CHAR, ROI_CMD);
-	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	 "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-	 return;
-	 }
-       */
-      if (pdv_set_roi(serv_info->pdv_p,  x0, GUIDE_SIZE_X, y0, GUIDE_SIZE_Y) != 0){
-	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-	       "(%s:%d) unable to set image ROI",
-	       __FILE__, __LINE__);
-	 sprintf(buffer, "%c %s \"unable to set image ROI\"",
-	       FAIL_CHAR, ROI_CMD);
-	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-	 return;
-
-      }
-      if (pdv_enable_roi(serv_info->pdv_p, 1) != 0){
-	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-	       "(%s:%d) set ROI failed",
-	       __FILE__, __LINE__);
-	 sprintf(buffer, "%c %s \"set ROI failed\"",
-	       FAIL_CHAR, ROI_CMD);
-	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-	 return;
-
-      }
-      serv_info->image_width=GUIDE_SIZE_X;
-      serv_info->image_height=GUIDE_SIZE_Y;
-      serv_info->win_x0=x0;
-      serv_info->win_y0=y0;
-
-      cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	    "(%s:%d) image ROI setting is: x0=%i y0=%i x1=%i y1=%i",
-	    __FILE__, __LINE__, x0, y0, x1, y1);
-      sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
-      cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-
-      return;
    }
    /*
     * If we made it this far, this is an unrecognized command request
@@ -3428,13 +3476,18 @@ int main(int argc, char* argv[])
 #endif //SLOPES
 
 #ifdef DEBUG
+   char timestr[40];
+   char filenamePos[512];
+   char filenameTim[512];
+   time_t file_ts;
    double time_spent;
    struct timeval last_time, this_time;
+   struct timeval t1, t2, t3, t4, t5, t6, t7, t8, last_t1;
    struct timezone tz;
-   int index = 0;
-   static FILE* filePtr = NULL;
+   long int index = 0;
+   static FILE* PosfilePtr = NULL;
+   static FILE* TimfilePtr = NULL;
 
-   gettimeofday(&last_time,&tz);
 #endif //DEBUG
 
    /*
@@ -3786,6 +3839,11 @@ int main(int argc, char* argv[])
     */
    for (;;)
    {
+#ifdef DEBUG
+      /* Take "Begin" time */
+      gettimeofday(&t1,&tz);
+#endif //DEBUG
+
       cli_signal_block(SIGTERM);
       cli_signal_block(SIGINT);
 
@@ -3884,6 +3942,11 @@ int main(int argc, char* argv[])
        */
       if (serv_info->video_on == TRUE) {
 
+#ifdef DEBUG
+         /* Take "BegGetImage" time */
+         gettimeofday(&t2,&tz);
+#endif //DEBUG
+
 	 /*
 	  * Start the acquisition of the next image
 	  */
@@ -3894,34 +3957,64 @@ int main(int argc, char* argv[])
 	  */
 	 image_p = pdv_wait_image(serv_info->pdv_p);
 
+#ifdef DEBUG
+         /* Take "EnGetImage" time */
+         gettimeofday(&t3,&tz);
+#endif //DEBUG
+
 	 /*
 	  *  Starting the centroid calculation
 	  */
 	 if (serv_info->guide_on == TRUE)
 	 {
-	    if (serv_info->first_done_flag == 0)
-	    {
+	    if (last_guide_on_state == FALSE) {
 #ifdef DEBUG
+               index = 0;
 	       /* 
 		* Open a csv file where to write:
 		* Index; time (ms); Xcmd (mrad); Ycmd (mrad);
 		* Xmes (mrad); Ymes (mrad)
 		*/
-	       filePtr = fopen("/cfht/src/spirou/guider/raptorServ/Outputs.csv", "w");
-	       if (filePtr == NULL) {
+               /* Create the string to use for the filename */
+               time(&(file_ts));
+               strftime(timestr, sizeof(timestr) - 1, "%Y%m%d-%H%M%S",
+                        localtime(&(file_ts)));
+
+               sprintf(filenamePos, "/cfht/src/spirou/guider/raptorServ/%s_POS.csv",
+                       timestr);
+	       PosfilePtr = fopen(filenamePos, "w");
+	       if (PosfilePtr == NULL) {
 		  cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to open "
 			"output file", __FILE__, __LINE__);
 		  exit(EXIT_FAILURE);
 	       }
 	       /* Print out header to the csv file */
-	       if (fprintf(filePtr, "Index;Time(ms);Xstar (Pixel);Ystar (Pixel)"
+	       if (fprintf(PosfilePtr, "Index;Time(ms);Xstar (Pixel);Ystar (Pixel)"
 			";Xisu (mrad);Yisu (mrad);DeltaX (arcsec);DeltaY (arcsec)\n") < 0) {
 		  cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to print to "
+			"position output file", __FILE__, __LINE__);
+		  exit(EXIT_FAILURE);
+	       }
+               sprintf(filenameTim, "/cfht/src/spirou/guider/raptorServ/%s_TIM.csv",
+                       timestr);
+	       TimfilePtr = fopen(filenameTim, "w");
+	       if (TimfilePtr == NULL) {
+		  cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to open "
 			"output file", __FILE__, __LINE__);
+		  exit(EXIT_FAILURE);
+	       }
+	       /* Print out header to the csv file */
+	       if (fprintf(TimfilePtr, "Index;Begin(ms);BegGetImage(ms);EnGetImage(ms)"
+			";BegCentroid (ms);EnCentroid (ms);BegMoveIsu (ms);EnMoveIsu (ms);End(ms)\n") < 0) {
+		  cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to print to "
+			"timing output file", __FILE__, __LINE__);
 		  exit(EXIT_FAILURE);
 	       }
 #endif //DEBUG
 
+            }
+	    if (serv_info->first_done_flag == 0)
+	    {
 	       calculatePointFWHM((unsigned short *)image_p,
 		     GUIDE_SIZE_X, GUIDE_SIZE_Y);
 
@@ -3934,8 +4027,9 @@ int main(int argc, char* argv[])
 	       else {
 		  if (x_fault) {
 		     cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) fatal error on "
-			   "the fast guiding loop: isu x axis is in error.  relaunch "
-			   "the fast guiding loop. an evolution of libisu to avoid "
+			   "the fast guiding loop: isu x axis is in error."
+			   " Relaunch the fast guiding loop. an evolution of "
+			   "libisu to avoid "
 			   "this fatal error should be considered", 
 			   __FILE__, __LINE__);
 		     if (xangle != 0) {
@@ -3948,9 +4042,9 @@ int main(int argc, char* argv[])
 		  if (y_fault) {
 		     cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) fatal error on "
 			   "the fast guiding loop: isu y axis is in error.  "
-                           "Relaunch the fast guiding loop. An evolution of "
-                           "libisu to avoid this fatal error should be "
-                           "considered", 
+			   "Relaunch the fast guiding loop. An evolution of "
+			   "libisu to avoid this fatal error should be "
+			   "considered", 
 			   __FILE__, __LINE__);
 		     if (yangle != 0) {
 			cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) \"true\" "
@@ -3966,6 +4060,11 @@ int main(int argc, char* argv[])
 	    /*
 	     *  Calculate the centroid
 	     */
+#ifdef DEBUG
+         /* Take "BegCentroid" time */
+         gettimeofday(&t4,&tz);
+#endif
+
 #ifdef SIM_STAR
 	    /* 
 	     * Simulate a gaussian star distribution in x & y
@@ -4003,8 +4102,8 @@ int main(int argc, char* argv[])
 	    serv_info->guide_yoff=yc;
 
 	    // fprintf(stderr, "guide_xoff : %.2f - "
-            //                 "guide_yoff : %.2f (pixels)\n",
-            // serv_info->guide_xoff, serv_info->guide_yoff);
+	    //                 "guide_yoff : %.2f (pixels)\n",
+	    // serv_info->guide_xoff, serv_info->guide_yoff);
 
 #ifdef HAVE_ISU
 	    /* Converting pixel values to angle in arcsec */
@@ -4049,6 +4148,13 @@ int main(int argc, char* argv[])
 #endif //HAVE_ISU
 
 #endif //SIM_STAR
+#ifdef DEBUG
+         /* Take "EnCentroid" time */
+         gettimeofday(&t5,&tz);
+         /* Take "BegMoveIsu" time */
+         gettimeofday(&t6,&tz);
+#endif
+
 
 	    if (serv_info->isu_on == TRUE)
 	    {
@@ -4103,87 +4209,113 @@ int main(int argc, char* argv[])
 	       }
 #endif //SLOPES
 #endif  //HAVE_ISU
-            } /* End of isu correction loop */
+	    } /* End of isu correction loop */
 
 #ifdef DEBUG
-	    if (serv_info->first_done_flag == 0) {
-	       fprintf(stderr, "xoff:%.2f, yoff:%.2f pixels\n",
-		     // "isu_mrad_x_delta_setup:%.2f, isu_mrad_y_delta_setup:%.2f\n",
-		     serv_info->guide_xoff, serv_info->guide_yoff); //,
-	       // serv_info->isu_mrad_x_delta_setup,
-	       // serv_info->isu_mrad_y_delta_setup);
-	    }
-	    /* 
-	     * retreiving current isu position in mrad on the mechanism
-	     * ("true" position)
-	     */
-	    if (get_angles(&last_x_angle, &last_y_angle) != PASS) {
-	       cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) fatal error on "
-		     "the fast guiding loop: failed getting isu angles",
-		     __FILE__, __LINE__);
-	       exit(EXIT_FAILURE);
-	    }
+         /* Take "EnMoveIsu" time */
+         gettimeofday(&t7,&tz);
 
-	    /* 
-	     * Print out results to the csv file
-	     * Index; time (ms); Xcmd (mrad); Ycmd (mrad);
-	     * Xmes (mrad); Ymes (mrad);DeltaX (mrad);DeltaY (mrad)
-	     */
-	    gettimeofday(&this_time,&tz);
+         /* This is the first loop */
+	 if (serv_info->first_done_flag == 0) {
+            gettimeofday(&last_time,&tz);
+            /* Take "End" time in advance at the first loop only*/
+            gettimeofday(&t8,&tz);
+            gettimeofday(&last_t1,&tz);
+	    fprintf(stderr, "xoff:%.2f, yoff:%.2f pixels\n",
+                    serv_info->guide_xoff, serv_info->guide_yoff);
+            /* This is an additional display */
+	    fprintf(stderr, "Index; time (ms); Xstar (Pixel); Ystar (Pixel);"
+	            "Xisu (mrad); Yisu (mrad);DeltaX (mrad);DeltaY (mrad)\n");
+	    fprintf(stderr, "%ld;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf\n",
+	            index, time_spent, 
+	            serv_info->guide_xoff,
+	            serv_info->guide_yoff,
+	            serv_info->isu_mrad_x_status,
+	            serv_info->isu_mrad_y_status,
+	            serv_info->isu_mrad_x_delta_setup,
+	            serv_info->isu_mrad_y_delta_setup);
+	 }
+         /* Take current time */
+	 gettimeofday(&this_time,&tz);
 
-	    /* time_spent is in ms */
-	    time_spent = ( (double) this_time.tv_sec  * 1E3
-		  + (double) this_time.tv_usec * 1E-3 )
-	       - ( (double) last_time.tv_sec  * 1E3
-		     + (double) last_time.tv_usec * 1E-3 );
-	    /* 
-	     * Print out results to the csv file
-	     * Index; time (ms); Xcmd (mrad); Ycmd (mrad);
-	     * Xmes (mrad); Ymes (mrad);DeltaX (mrad);DeltaY (mrad)
-	     */
-	    index++;
-	    if (fprintf(filePtr, "%d;%lf;%lf;%lf;%lf;%lf;%lf;%lf\n",
+	 /* time_spent is in ms */
+	 time_spent = ( (double) this_time.tv_sec  * 1E3
+		      + (double) this_time.tv_usec * 1E-3 )
+	              - ( (double) last_time.tv_sec  * 1E3
+		      + (double) last_time.tv_usec * 1E-3 );
+	 /* 
+	  * Print out results to the csv file
+	  * Index; time (ms); Xstar (Pixel); Ystar (Pixel);
+	  * Xisu (mrad); Yisu (mrad);DeltaX (mrad);DeltaY (mrad)
+	  */
+	 if (fprintf(PosfilePtr, "%ld;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf\n",
 		     index, time_spent, 
-		     serv_info->guide_xoff, // (double)serv_info->isu_mrad_x_status + (double)serv_info->isu_mrad_x_delta_setup,
-		     serv_info->guide_yoff, // (double)serv_info->isu_mrad_y_status + (double)serv_info->isu_mrad_y_delta_setup,
-		     last_x_angle, // (double)serv_info->isu_mrad_x_status,
-		     last_y_angle, // (double)serv_info->isu_mrad_y_status,
-		     xangle, // (double)serv_info->isu_mrad_x_delta_setup,
-		     yangle) < 0) { // (double)serv_info->isu_mrad_y_delta_setup) < 0) {
+		     serv_info->guide_xoff,
+		     serv_info->guide_yoff,
+		     serv_info->isu_mrad_x_status,
+		     serv_info->isu_mrad_y_status,
+		     serv_info->isu_mrad_x_delta_setup,
+		     serv_info->isu_mrad_y_delta_setup) < 0) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to print to "
+		     "position output file", __FILE__, __LINE__);
+	    exit(EXIT_FAILURE);
+	 }
+	 last_time.tv_sec = this_time.tv_sec;
+	 last_time.tv_usec = this_time.tv_usec;
+
+         /*
+          * Print out results to the csv file
+          * Index;Begin(ms);BegGetImage(ms);EnGetImage(ms)
+          * ;BegCentroid (ms);EnCentroid (ms);BegMoveIsu (ms);EnMoveIsu (ms);End(ms) 
+         */
+	 if (serv_info->first_done_flag != 0) {
+            if (fprintf(TimfilePtr, "%.2f\n",
+                                 (t8.tv_sec * 1E3 + t8.tv_usec * 1E-3)- 
+                                 (last_t1.tv_sec * 1E3 + last_t1.tv_usec * 1E-3)) < 0) {
 	       cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to print to "
-		     "output file", __FILE__, __LINE__);
+		     "timing output file", __FILE__, __LINE__);
 	       exit(EXIT_FAILURE);
 	    }
-	    last_time.tv_sec = this_time.tv_sec;
-	    last_time.tv_usec = this_time.tv_usec;
-
-            if (index == 1) {
-	       fprintf(stderr, "Index; time (ms); Xcmd (mrad); Ycmd (mrad);"
-	          "Xmes (mrad); Ymes (mrad);DeltaX (mrad);DeltaY (mrad)\n");
-            }
-	    fprintf(stderr, "%d;%lf;%lf;%lf;%lf;%lf;%lf;%lf\n",
-		  index, time_spent, 
-		  serv_info->guide_xoff,
-		  serv_info->guide_yoff,
-		  last_x_angle,
-		  last_y_angle,
-		  xangle,
-		  yangle);
+         }
+             
+	 if (fprintf(TimfilePtr, "%ld;0.00;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;",
+                                 index,
+                                 (t2.tv_sec * 1E3 + t2.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3),
+                                 (t3.tv_sec * 1E3 + t3.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3),
+                                 (t4.tv_sec * 1E3 + t4.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3),
+                                 (t5.tv_sec * 1E3 + t5.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3),
+                                 (t6.tv_sec * 1E3 + t6.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3),
+                                 (t7.tv_sec * 1E3 + t7.tv_usec * 1E-3)- 
+                                 (t1.tv_sec * 1E3 + t1.tv_usec * 1E-3)) < 0) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR, "(%s:%d) Failed to print to "
+		     "timing output file", __FILE__, __LINE__);
+	    exit(EXIT_FAILURE);
+	 }
+	 index++;
 #endif //DEBUG
-
 	    serv_info->first_done_flag = 1;
-	    } /* End of guide loop */
-
-	    if (serv_info->guide_on == FALSE) {
+	    last_guide_on_state = TRUE;
+	    } /* End of case guide ON */
+	    else {
 	       if (last_guide_on_state == TRUE) {
 #ifdef DEBUG
-		  /* Close the debug csv file */
-		  if (fclose(filePtr) != 0) {
+		  /* Close the position debug csv file */
+		  if (fclose(PosfilePtr) != 0) {
 		     cfht_logv(CFHT_MAIN, CFHT_WARN, "(%s:%d) Failed to close "
-			   "output file", __FILE__, __LINE__);
+			   "position output file", __FILE__, __LINE__);
 		  }
-		  last_guide_on_state = FALSE;
+		  /* Close the timing debug csv file */
+		  if (fclose(TimfilePtr) != 0) {
+		     cfht_logv(CFHT_MAIN, CFHT_WARN, "(%s:%d) Failed to close "
+			   "timing output file", __FILE__, __LINE__);
+		  }
 #endif //DEBUG
+		  last_guide_on_state = FALSE;
 		  serv_info->first_done_flag = 0;
 	       }
 	    }
@@ -4206,6 +4338,13 @@ int main(int argc, char* argv[])
 		     "(%s:%d) unable to create FITS file and write it to"
 		     " STDOUT", __FILE__, __LINE__);
 	    }
+#ifdef DEBUG
+         /* Take "End" time */
+         gettimeofday(&t8,&tz);
+         last_t1.tv_sec = t1.tv_sec;
+         last_t1.tv_usec = t1.tv_usec;
+#endif
+
 	 } // End of if video on
 
 	 /*
@@ -4216,6 +4355,7 @@ int main(int argc, char* argv[])
 	 {
 	    if (last_video_on_state == TRUE) { last_video_on_state = FALSE; }
 	 }
+
       } // End of Infinte loop for
       exit(EXIT_SUCCESS);
    } // End of Main

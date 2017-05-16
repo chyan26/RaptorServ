@@ -27,6 +27,8 @@
  *                       the image before it was sent to the fits pipe
  *                       Improve DEBUG features
  * mlarrieu  14 Apr 2017 Add an option r to reset the roi
+ * mlarrieu  16 May 2017 Apply +0.5 offset on the centroid to be compliant
+ *                       with the SExtractor convention
  *                       
  *
  * $Log$
@@ -4098,6 +4100,9 @@ int main(int argc, char* argv[])
 	    //calculateCentroid((unsigned short *)image, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
 	    calculateCentroidMPFIT((unsigned short *)image_p, GUIDE_SIZE_X, GUIDE_SIZE_Y,&xc, &yc);
 
+            /* In order to be compliant with the SExtractor convention: +0.5 */
+            xc = xc + 0.5;
+            yc = yc + 0.5;
 	    serv_info->guide_xoff=xc;
 	    serv_info->guide_yoff=yc;
 
@@ -4137,7 +4142,7 @@ int main(int argc, char* argv[])
 	       exit(EXIT_FAILURE);
 	    }
 
-	    /* the serv_info structure is updated in order to fill in the header */
+	    /* The serv_info structure is updated to fill in the header */
 	    serv_info->isu_mrad_x_status = last_x_angle;
 	    serv_info->isu_mrad_y_status = last_y_angle;
 

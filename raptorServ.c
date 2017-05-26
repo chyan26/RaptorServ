@@ -29,6 +29,9 @@
  * mlarrieu  14 Apr 2017 Add an option r to reset the roi
  * mlarrieu  16 May 2017 Apply +0.5 offset on the centroid to be compliant
  *                       with the SExtractor convention
+ * tomv      25 may 2017 Added spirou_guide.conf
+ *                       Updated NULL and GUIDE commands
+ *                       Modified FITS KW
  *                       
  *
  * $Log$
@@ -68,6 +71,7 @@
 
 #define RAPTOR_PORT "915"  /* Port name or number on which to listen */
 #define RAPTOR_CONFIG "/cfht/conf/raptor.conf"
+#define GUIDER_CONFIG "/cfht/conf/spirou_guide.conf"
 
 /*
  * Telescope pointing information
@@ -108,6 +112,7 @@
 #define TEC_CMD "TEC"
 #define TEMP_CMD "TEMP"
 #define ROI_CMD "ROI"
+#define NULL_CMD "NULL"
 #define VIDEO_CMD "VIDEO"
 #define SAVE_CMD "SAVE"
 #define GUIDE_CMD "GUIDE"
@@ -118,6 +123,12 @@
 #define FAIL_CHAR '!'
 #define OOB_CHAR '*'
 #define PERR_CHAR '?'
+
+/* Configuration file parameters */
+#define CONFIG_GUIDE_RASTER_X0 "guideRasterX0"
+#define CONFIG_GUIDE_RASTER_Y0 "guideRasterY0"
+#define CONFIG_GUIDE_NULL_X "holeNullX"
+#define CONFIG_GUIDE_NULL_Y "holeNullY"
 
 #define SIZE_X 640
 #define SIZE_Y 512
@@ -133,7 +144,11 @@
  * if DEBUG is defined, some printf are done on a file and on stderr
  * so this is memory and time consuming
  */
-#define DEBUG
+//#define DEBUG
+
+#define DEBUG_FILE_PATH "/cfht/src/spirou/guider/raptorServ"
+
+//#define DEBUG_FILE_PATH "/tmp"
 
 /*
  * BEWARE THAT
@@ -179,6 +194,8 @@ typedef struct {
    int image_height;
    int win_x0;
    int win_y0;
+   int guide_x0;
+   int guide_y0;
    float null_x;
    float null_y;
    float guide_xoff;
@@ -2474,104 +2491,130 @@ writeFITSImage(unsigned char *image_p) {
 	 "Frame sequence number");
    fh_set_flt(hu, FH_AUTO, "PIXSCALE", PIXSCALE, 5, 
 	 "Pixel scale (arcseconds / pixel)");
-   if (serv_info->guide_on == TRUE){
-      fh_set_int(hu, FH_AUTO, "WIN_X0", serv_info->win_x0, "X0 coordinate for the camera raster");
-      fh_set_int(hu, FH_AUTO, "WIN_Y0", serv_info->win_y0, "Y0 coordinate for the camera raster");
-      fh_set_int(hu, FH_AUTO, "WIN_X1", serv_info->win_x0 + serv_info->image_width - 1,
-	    "X1 coordinate for the camera raster");
-      fh_set_int(hu, FH_AUTO, "WIN_Y1", serv_info->win_y0 + serv_info->image_height - 1,
-	    "Y1 coordinate for the camera raster");
-      fh_set_flt(hu, FH_AUTO, "GD_XOFF", serv_info->guide_xoff,5, "Guide star offset in X");
-      fh_set_flt(hu, FH_AUTO, "GD_YOFF", serv_info->guide_yoff,5, "Guide star offset in Y");
-      fh_set_flt(hu, FH_AUTO, "NULLX", serv_info->null_x, 5, 
-	    "Null position (center of aperture hole in X");
-	    fh_set_flt(hu, FH_AUTO, "NULLY", serv_info->null_x, 5, 
-	       "Null position (center of aperture hole in Y");
-	       } else {
-	       fh_set_int(hu, FH_AUTO, "WIN_X0", fh_fits_integer_null, "X0 coordinate for the camera raster");
-	       fh_set_int(hu, FH_AUTO, "WIN_Y0", fh_fits_integer_null, "Y0 coordinate for the camera raster");
-	       fh_set_int(hu, FH_AUTO, "WIN_X1", fh_fits_integer_null, "X1 coordinate for the camera raster");
-	       fh_set_int(hu, FH_AUTO, "WIN_Y1", fh_fits_integer_null, "Y1 coordinate for the camera raster");
-	       fh_set_flt(hu, FH_AUTO, "GD_XOFF", fh_fits_real_null,5, "Guide star offset in X");
-	       fh_set_flt(hu, FH_AUTO, "GD_YOFF", fh_fits_real_null,5, "Guide star offset in Y");
-	       fh_set_flt(hu, FH_AUTO, "NULLX", fh_fits_real_null, 5, 
-		  "Null position (center of aperture hole in X");
-		  fh_set_flt(hu, FH_AUTO, "NULLY", fh_fits_real_null, 5, 
-		     "Null position (center of aperture hole in Y");
-		     }
-		     if (serv_info->isu_on == TRUE){
-		     fh_set_flt(hu, FH_AUTO, "SMRAD_X", serv_info->isu_mrad_x_delta_setup,5, "delta X position sent to the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "SMRAD_Y", serv_info->isu_mrad_y_delta_setup,5, "delta Y position sent to the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "RMRAD_X", serv_info->isu_mrad_x_status,5, "X position read from the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "RMRAD_Y", serv_info->isu_mrad_y_status,5, "Y position read from the ISU in mrad");
-		     }
-		     else {
-		     fh_set_flt(hu, FH_AUTO, "SMRAD_X", fh_fits_real_null,5, "X position sent to the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "SMRAD_Y", fh_fits_real_null,5, "Y position sent to the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "RMRAD_X", fh_fits_real_null,5, "X position read from the ISU in mrad");
-		     fh_set_flt(hu, FH_AUTO, "RMRAD_Y", fh_fits_real_null,5, "Y position read from the ISU in mrad");
-		     }
-		     if (serv_info->exp_on == TRUE){
-		     fh_set_str(hu, FH_AUTO, "FILENAME", serv_info->filename, "Observation file name");
-		     fh_set_str(hu, FH_AUTO, "RA", serv_info->ra,"Telescope right ascension");
-		     fh_set_str(hu, FH_AUTO, "DEC", serv_info->dec,"Telescope declination");
-		     fh_set_flt(hu, FH_AUTO, "EQUINOX", serv_info->equinox,5, "Equinox");
-		     fh_set_flt(hu, FH_AUTO, "OBJMAG", serv_info->objmag,5, "Object magnitude");
-		     }
-		     else {
-			fh_set_str(hu, FH_AUTO, "FILENAME", fh_fits_string_null, "Observation file name");
-			fh_set_str(hu, FH_AUTO, "RA", fh_fits_string_null, "Telescope right ascension");
-			fh_set_str(hu, FH_AUTO, "DEC", fh_fits_string_null, "Telescope declination");
-			fh_set_flt(hu, FH_AUTO, "EQUINOX", fh_fits_real_null,5, "Equinox");
-			fh_set_flt(hu, FH_AUTO, "OBJMAG", fh_fits_real_null,5, "Object magnitude");
-		     }
+   fh_set_int(hu, FH_AUTO, "WIN_X0", serv_info->win_x0, 
+	      "X0 coordinate for the camera raster");
+   fh_set_int(hu, FH_AUTO, "WIN_Y0", serv_info->win_y0, 
+	      "Y0 coordinate for the camera raster");
+   fh_set_int(hu, FH_AUTO, "WIN_X1", 
+	      serv_info->win_x0 + serv_info->image_width - 1,
+	      "X1 coordinate for the camera raster");
+   fh_set_int(hu, FH_AUTO, "WIN_Y1", 
+	      serv_info->win_y0 + serv_info->image_height - 1,
+	      "Y1 coordinate for the camera raster");
+   fh_set_int(hu, FH_AUTO, "GUIDE_X0", serv_info->guide_x0,
+	      "X0 coordinate for the guide raster");
+   fh_set_int(hu, FH_AUTO, "GUIDE_Y0", serv_info->guide_y0,
+	      "Y0 coordinate for the guide raster");
+   fh_set_int(hu, FH_AUTO, "GUIDE_X1",
+	      serv_info->guide_x0 + GUIDE_SIZE_X - 1,
+	      "X1 coordinate for the guide raster");
+   fh_set_int(hu, FH_AUTO, "GUIDE_Y1",
+	      serv_info->guide_y0 + GUIDE_SIZE_Y - 1,
+	      "Y1 coordinate for the guide raster");
+   fh_set_flt(hu, FH_AUTO, "NULLX", serv_info->null_x, 5, 
+	      "Null position (center of aperture hole in X");
+   fh_set_flt(hu, FH_AUTO, "NULLY", serv_info->null_y, 5, 
+	      "Null position (center of aperture hole in Y");
+   if (serv_info->guide_on == TRUE) {
+      fh_set_flt(hu, FH_AUTO, "GD_XOFF", serv_info->guide_xoff,5, 
+		 "Guide star offset in X");
+      fh_set_flt(hu, FH_AUTO, "GD_YOFF", serv_info->guide_yoff,5, 
+		 "Guide star offset in Y");
+   }
+   else {
+      fh_set_flt(hu, FH_AUTO, "GD_XOFF", fh_fits_real_null,5, 
+		 "Guide star offset in X");
+      fh_set_flt(hu, FH_AUTO, "GD_YOFF", fh_fits_real_null,5, 
+		 "Guide star offset in Y");
+   }
+   if (serv_info->isu_on == TRUE){
+      fh_set_flt(hu, FH_AUTO, "SMRAD_X", serv_info->isu_mrad_x_delta_setup,5, 
+		 "delta X position sent to the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "SMRAD_Y", serv_info->isu_mrad_y_delta_setup,5, 
+		 "delta Y position sent to the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "RMRAD_X", serv_info->isu_mrad_x_status,5, 
+		 "X position read from the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "RMRAD_Y", serv_info->isu_mrad_y_status,5, 
+		 "Y position read from the ISU in mrad");
+   }
+   else {
+      fh_set_flt(hu, FH_AUTO, "SMRAD_X", fh_fits_real_null,5, 
+		 "X position sent to the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "SMRAD_Y", fh_fits_real_null,5, 
+		 "Y position sent to the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "RMRAD_X", fh_fits_real_null,5, 
+		 "X position read from the ISU in mrad");
+      fh_set_flt(hu, FH_AUTO, "RMRAD_Y", fh_fits_real_null,5, 
+		 "Y position read from the ISU in mrad");
+   }
+   if (serv_info->exp_on == TRUE){
+      fh_set_str(hu, FH_AUTO, "FILENAME", serv_info->filename, 
+		 "Observation file name");
+      fh_set_str(hu, FH_AUTO, "RA", serv_info->ra,"Telescope right ascension");
+      fh_set_str(hu, FH_AUTO, "DEC", serv_info->dec,"Telescope declination");
+      fh_set_flt(hu, FH_AUTO, "EQUINOX", serv_info->equinox,5, "Equinox");
+      fh_set_flt(hu, FH_AUTO, "OBJMAG", serv_info->objmag,5, 
+		 "Object magnitude");
+   }
+   else {
+      fh_set_str(hu, FH_AUTO, "FILENAME", fh_fits_string_null, 
+		 "Observation file name");
+      fh_set_str(hu, FH_AUTO, "RA", fh_fits_string_null, 
+		 "Telescope right ascension");
+      fh_set_str(hu, FH_AUTO, "DEC", fh_fits_string_null, 
+		 "Telescope declination");
+      fh_set_flt(hu, FH_AUTO, "EQUINOX", fh_fits_real_null,5, 
+		 "Equinox");
+      fh_set_flt(hu, FH_AUTO, "OBJMAG", fh_fits_real_null,5, 
+		 "Object magnitude");
+   }
 
-		     /*
-		      * If the frame count has been reached, clear out the save 
-		      * information
-		      */
-		     if (strcmp(serv_info->fits_comment, fh_fits_string_null) &&
-			   (serv_info->frame_sequence >= serv_info->frame_save_count)) {
-			serv_info->fits_comment[0] = '\0';
-			serv_info->frame_save_count = 0;
-			serv_info->frame_sequence = 0;
-		     }
+   /*
+    * If the frame count has been reached, clear out the save 
+    * information
+    */
+   if (strcmp(serv_info->fits_comment, fh_fits_string_null) &&
+       (serv_info->frame_sequence >= serv_info->frame_save_count)) {
+      serv_info->fits_comment[0] = '\0';
+      serv_info->frame_save_count = 0;
+      serv_info->frame_sequence = 0;
+   }
 
-		     /* 
-		      * Write out the FITS header 
-		      */
-		     if ((fh_error = fh_write(hu, fd)) != FH_SUCCESS) {
-			cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-			      "(%s:%d) unable to write FITS header"
-			      " (fh_error = %d)\n", __FILE__, __LINE__,
-			      fh_error);
-			cfht_logv(CFHT_MAIN, CFHT_LOGONLY, 
-			      "%s (errno=%d)", strerror(errno), errno);
-			return FAIL;
-		     }
-
-		     /*
-		      * Write out the image data
-		      */
-		     if ((fh_error = fh_write_padded_image(hu, fd,
-				 (unsigned short *)image_p, 
-				 serv_info->image_width *
-				 serv_info->image_height *
-				 sizeof(uint16_t), FH_TYPESIZE_16U)) 
-			   != FH_SUCCESS) {
-			cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-			      "(%s:%d) unable to write FITS image data"
-			      " (fh_error = %d)\n", __FILE__, __LINE__,
-			      fh_error);
-			return FAIL;
-		     }
-
-		     /*
-		      * Free up the memory for the FITS header
-		      */
-		     fh_destroy(hu);
-
-		     return PASS;
+   /* 
+    * Write out the FITS header 
+    */
+   if ((fh_error = fh_write(hu, fd)) != FH_SUCCESS) {
+      cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		"(%s:%d) unable to write FITS header"
+		" (fh_error = %d)\n", __FILE__, __LINE__,
+		fh_error);
+      cfht_logv(CFHT_MAIN, CFHT_LOGONLY, 
+		"%s (errno=%d)", strerror(errno), errno);
+      return FAIL;
+   }
+   
+   /*
+    * Write out the image data
+    */
+   if ((fh_error = fh_write_padded_image(hu, fd,
+					 (unsigned short *)image_p, 
+					 serv_info->image_width *
+					 serv_info->image_height *
+					 sizeof(uint16_t), FH_TYPESIZE_16U)) 
+       != FH_SUCCESS) {
+      cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		"(%s:%d) unable to write FITS image data"
+		" (fh_error = %d)\n", __FILE__, __LINE__,
+		fh_error);
+      return FAIL;
+   }
+   
+   /*
+    * Free up the memory for the FITS header
+    */
+   fh_destroy(hu);
+   
+   return PASS;
 }
 
 
@@ -2839,6 +2882,21 @@ clientReceive(void *client, char *buffer)
 	 sprintf(buffer, "%c %s is %i X %i ", PASS_CHAR,
 	       ROI_CMD, pdv_get_width(serv_info->pdv_p),
 	       pdv_get_height(serv_info->pdv_p));
+
+	 return;
+      }
+
+      /*
+       * Handle a query for the image Null positions
+       */
+      if (!strcasecmp(buf_p, NULL_CMD)) {
+
+	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		   "(%s:%d) NULL positions are %f %f\n",
+		   __FILE__, __LINE__, serv_info->null_x, 
+		   serv_info->null_y);
+	 sprintf(buffer, "%c %s %f %f", PASS_CHAR,
+		 NULL_CMD, serv_info->null_x, serv_info->null_y);
 
 	 return;
       }
@@ -3214,36 +3272,97 @@ clientReceive(void *client, char *buffer)
    }
 
    /*
-    * Handle a request to turn on or off the guide mode from a client
-    * The syntax to turn on is GUIDE <NULLX> <NULLY>
-    * The syntax to turn off is GUIDE OFF
+    * Handle a request to change between guide raster and full raster image
+    * view.  When the command GUIDE ON is received, the guide raster is 
+    * used.  When the command GUIDE OFF is received, the full raster is 
+    * used.
     */
    if (!strcasecmp(buf_p, GUIDE_CMD)) {
-      /* Check number and nature of args */
-      if (cargc == 2 && isFloat(cargv[0]) == 1 && isFloat(cargv[1]) == 1){
-	 /* Check NULLX&Y range */
-	 if (atof(cargv[0]) < 0.0 || atof(cargv[0]) > 31.0 || atof(cargv[1]) < 0.0 || atof(cargv[1]) > 31.0){
-	    sprintf(buffer, "%c %s \"NULL positions should be in [0;31]\"",
-		  FAIL_CHAR, GUIDE_CMD);
+
+      /* Make sure only one argument is received */
+      if (cargc != 1) {
+	 sprintf(buffer, "%c \"Invalid guide command. Should be <ON|OFF>\"", 
+		 FAIL_CHAR);
+	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	 return;
+      }
+
+      if (strcasecmp(cargv[0], "OFF") == 0) {
+         serv_info->win_x0 = 0;
+         serv_info->win_y0 = 0;
+         serv_info->image_width = SIZE_X;
+         serv_info->image_height = SIZE_Y;
+
+         /* Clear the region of interest so it goes back to full raster */
+         if (pdv_enable_roi(serv_info->pdv_p, 0) != 0){
+            cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) unable to reset image ROI",
+		      __FILE__, __LINE__);
+            sprintf(buffer, "%c %s \"unable to reset image ROI\"",
+		    FAIL_CHAR, GUIDE_CMD);
+            cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+            return;
+         }
+	 serv_info->guide_on = FALSE;
+	 serv_info->first_done_flag = 0;
+
+	 /*
+	  * TODO: turn off the ISU and TCS corrections
+	  */
+
+	 sprintf(buffer, "%c %s OFF", PASS_CHAR, GUIDE_CMD);
+      }
+      else if (strcasecmp(cargv[0], "ON") == 0) {
+         serv_info->win_x0 = serv_info->guide_x0;
+         serv_info->win_y0 = serv_info->guide_y0;
+	 serv_info->image_width = GUIDE_SIZE_X;
+	 serv_info->image_height = GUIDE_SIZE_Y;
+
+	 /*
+	  * Set the region of interest on the detector
+	  */
+         if (pdv_set_roi(serv_info->pdv_p,  serv_info->guide_x0, 
+			 GUIDE_SIZE_X, serv_info->guide_y0, 
+			 GUIDE_SIZE_Y) != 0) {
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) unable to set image ROI",
+		      __FILE__, __LINE__);
+	    sprintf(buffer, "%c %s \"unable to set image ROI\"",
+		    FAIL_CHAR, GUIDE_CMD);
 	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-		  "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+         }
+
+	 /*
+	  * Enable the region of interest
+	  */
+         if (pdv_enable_roi(serv_info->pdv_p, 1) != 0){
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) set ROI failed",
+		      __FILE__, __LINE__);
+	    sprintf(buffer, "%c %s \"set ROI failed\"",
+		    FAIL_CHAR, GUIDE_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
 	    return;
 	 }
-	 serv_info->null_x = atof(cargv[0]);
-	 serv_info->null_y = atof(cargv[1]);
 	 serv_info->guide_on = TRUE;
-	 sprintf(buffer, "%c ON with NULLX=%.2f and NULLY=%.2f", PASS_CHAR,
-	       serv_info->null_x, serv_info->null_y);
-      } else if ((!strcasecmp(cargv[0], "OFF")) && (cargc == 1)) {
-	 serv_info->guide_on = FALSE;
-	 sprintf(buffer, "%c OFF", PASS_CHAR);
-	 serv_info->first_done_flag = 0;
+
+	 sprintf(buffer, "%c %s ON", PASS_CHAR, GUIDE_CMD);
       }
       else {
-	 sprintf(buffer, "%c \"Invalid guide command. Should be OFF or <NULLX> <NULLY>\"", FAIL_CHAR);
+	 sprintf(buffer, "%c \"Invalid guide command. Should be <ON|OFF>\"", 
+		 FAIL_CHAR);
+	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	 return;
       }
+
       cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+		"(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
       return;
    }
 
@@ -3283,128 +3402,173 @@ clientReceive(void *client, char *buffer)
    }
 
    /*
-    * Handle a request to set a ROI of images.  This will set the
-    * PDV card to change the ROI.
+    * Handle a request to change the null position for the guider
     */
-   if (!strcasecmp(buf_p, ROI_CMD)) {
-      int x0,y0,x1,y1;
-      char *stop_at = NULL;
+   if (!strcasecmp(buf_p, NULL_CMD)) {
 
       /* Check number and nature of args */
-      if (cargc == 1 && strcasecmp(cargv[0], "r") == 0) {
-         /* Case reset roi */
-         if (pdv_enable_roi(serv_info->pdv_p, 0) != 0){
-            cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-                 "(%s:%d) unable to reset image ROI",
-                 __FILE__, __LINE__);
-            sprintf(buffer, "%c %s \"unable to reset image ROI\"",
-                 FAIL_CHAR, ROI_CMD);
-            cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-                 "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-            return;
-         }
-         serv_info->image_width=SIZE_X;
-         serv_info->image_height=SIZE_Y;
-         serv_info->win_x0=0;
-         serv_info->win_y0=0;
-   
-         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	    "(%s:%d) image ROI setting is reset to full frame %d per %d",
-   	    __FILE__, __LINE__, SIZE_X, SIZE_Y);
-         sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
-         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   
-         return;
-      }
-      else if (cargc == 2 && isInt(cargv[0]) && isInt(cargv[1])){
-         /* Case set roi */
-         x0 = strtol(cargv[0], &stop_at,10);
-         y0 = strtol(cargv[1], &stop_at,10);
-   
-         /* Make sure the set point is valid */
-         if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
-   	 sprintf(buffer, "%c %s \"Invalid Argument Specified\"",
-   	       FAIL_CHAR, ROI_CMD);
-   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   	 return;
-         }
-   
-         /* Make sure the value is compliant with the camera field of view */
-         if (x0 < 0 || x0 > SIZE_X - GUIDE_SIZE_X ||
-   	    y0 < 0 || y0 > SIZE_Y - GUIDE_SIZE_Y ) {
-   	 sprintf(buffer, "%c %s \"The selected x0 and y0 are out of range [0;%d] [0;%d]\"",
-   	       FAIL_CHAR, ROI_CMD, SIZE_X - GUIDE_SIZE_X, SIZE_Y - GUIDE_SIZE_Y);
-   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   	 return;
-         }
-         x1 = x0 + 31;
-         y1 = y0 + 31;
-   
-         /*
-   	 In a former version from Chi-Hung, roi other than 32 x 32 were allowed.
-   	 This is now commented.
-   	 s_width = (x1 - x0)+1;
-   	 s_height = (y1 - y0)+1;
-   
-   	 if (s_height<2 && s_width<2){
-   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-   	 "(%s:%d) image size incorrect, check ROI setting",
-   	 __FILE__, __LINE__);
-   	 sprintf(buffer, "%c %s \"image size incorrect, check ROI setting",
-   	 FAIL_CHAR, ROI_CMD);
-   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	 "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   	 return;
-   	 }
-          */
-         if (pdv_set_roi(serv_info->pdv_p,  x0, GUIDE_SIZE_X, y0, GUIDE_SIZE_Y) != 0){
-   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-   	       "(%s:%d) unable to set image ROI",
-   	       __FILE__, __LINE__);
-   	 sprintf(buffer, "%c %s \"unable to set image ROI\"",
-   	       FAIL_CHAR, ROI_CMD);
-   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   	 return;
-   
-         }
-         if (pdv_enable_roi(serv_info->pdv_p, 1) != 0){
-   	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
-   	       "(%s:%d) set ROI failed",
-   	       __FILE__, __LINE__);
-   	 sprintf(buffer, "%c %s \"set ROI failed\"",
-   	       FAIL_CHAR, ROI_CMD);
-   	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   	 return;
-   
-         }
-         serv_info->image_width=GUIDE_SIZE_X;
-         serv_info->image_height=GUIDE_SIZE_Y;
-         serv_info->win_x0=x0;
-         serv_info->win_y0=y0;
-   
-         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	    "(%s:%d) image ROI setting is: x0=%i y0=%i x1=%i y1=%i",
-   	    __FILE__, __LINE__, x0, y0, x1, y1);
-         sprintf(buffer, "%c %s", PASS_CHAR, ROI_CMD);
-         cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-   	    "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
-   
-         return;
+      if ((cargc == 2) && 
+	  (isFloat(cargv[0]) == 1) && 
+	  (isFloat(cargv[1]) == 1)) {
+	 float x;
+	 float y;
+	 char *stop_at = NULL;
+
+	 /* Check NULL X & Y range */
+
+	 /*
+	  * Validate the arguments
+	  */
+	 x = strtof(cargv[0], &stop_at);
+	 if ((errno == ERANGE) || (*stop_at != '\0')) {
+	    sprintf(buffer, "%c %s \"Invalid NULL position\"",
+		    FAIL_CHAR, NULL_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) Invalid X NULL position supplied", 
+		      __FILE__, __LINE__);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+	 }
+	 y = strtof(cargv[1], &stop_at);
+	 if ((errno == ERANGE) || (*stop_at != '\0')) {
+	    sprintf(buffer, "%c %s \"Invalid NULL position\"",
+		    FAIL_CHAR, NULL_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) Invalid Y NULL position supplied", 
+		      __FILE__, __LINE__);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+	 }
+
+	 if (x < 0 || x > SIZE_X || y < 0 || y > SIZE_Y) {
+	    sprintf(buffer, "%c %s \"NULL position out of range\"",
+		    FAIL_CHAR, NULL_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) NULL position (%f,%f) is out of range", 
+		      __FILE__, __LINE__, x, y);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+	 }
+
+	 /* Save the new NULL position */
+	 serv_info->null_x = x;
+	 serv_info->null_y = y;
+
+         sprintf(buffer, "%c %s", PASS_CHAR, NULL_CMD);
       }
       else {
-         /* Case unacceptable command */
-	 sprintf(buffer, "%c %s \"Input r to reset ROI, or two numbers "
-                                  "to set ROI\"", FAIL_CHAR, ROI_CMD);
+	 sprintf(buffer, "%c \"Invalid NULL command. Should be NULL"
+		 " <NULLX> <NULLY>\"", FAIL_CHAR);
+      }
+      cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		"(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+      return;
+   }
+
+   /*
+    * Handle a request to change the guide raster position
+    */
+   if (!strcasecmp(buf_p, ROI_CMD)) {
+      char *stop_at = NULL;
+      int x, y;
+
+      if (!((cargc == 2) && 
+	    (isInt(cargv[0]) == 1) && 
+	    (isInt(cargv[1]) == 1))) {
+	 sprintf(buffer, "%c \"Invalid ROI command. Should be %s <X0 Y0>\"", 
+		 FAIL_CHAR, ROI_CMD);
 	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
-	       "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
 	 return;
       }
+
+      x = strtol(cargv[0], &stop_at, 10);
+      if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
+	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		   "(%s:%d) invalid X ROI argument %s", 
+		   __FILE__, __LINE__, cargv[0]);
+	 sprintf(buffer, "%c \"Invalid ROI command. Argument is not a valid"
+		 " integer\"", FAIL_CHAR);
+	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	 return;
+      }
+
+      y = strtol(cargv[1], &stop_at, 10);
+      if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
+	 cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		   "(%s:%d) invalid Y ROI argument %s", 
+		   __FILE__, __LINE__, cargv[1]);
+	 sprintf(buffer, "%c \"Invalid ROI command. Argument is not a valid"
+		 " integer\"", FAIL_CHAR);
+	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	 return;
+      }
+      
+      if ((x < 0) || (x > SIZE_X - GUIDE_SIZE_X) ||
+	  (y < 0) || (y > SIZE_Y - GUIDE_SIZE_Y)) {
+	 cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		   "(%s:%d) guide raster arguments (%d,%d) are out of range",
+		   __FILE__, __LINE__, x, y);
+	 sprintf(buffer, "%c \"Invalid ROI command. Arguments are out of"
+		 " range\"", FAIL_CHAR);
+	 cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		   "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	 return;
+      }
+
+      /*
+       * If we made it to this point, it is a valid ROI.  Save the new
+       * values and apply the changes if we are currently in a subraster mode
+       */
+      serv_info->guide_x0 = x;
+      serv_info->guide_y0 = y;
+
+      /*
+       * Apply the changes if we are currently in the subraster mode
+       */
+      if ((serv_info->image_width == GUIDE_SIZE_X) &&
+	  (serv_info->image_width == GUIDE_SIZE_Y)) {
+
+	 /*
+	  * Set the region of interest on the detector
+	  */
+         if (pdv_set_roi(serv_info->pdv_p,  serv_info->guide_x0, 
+			 GUIDE_SIZE_X, serv_info->guide_y0, 
+			 GUIDE_SIZE_Y) != 0) {
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) unable to set image ROI",
+		      __FILE__, __LINE__);
+	    sprintf(buffer, "%c %s \"unable to set image ROI\"",
+		    FAIL_CHAR, ROI_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+         }
+
+	 /*
+	  * Enable the region of interest
+	  */
+         if (pdv_enable_roi(serv_info->pdv_p, 1) != 0){
+	    cfht_logv(CFHT_MAIN, CFHT_LOGONLY,
+		      "(%s:%d) set ROI failed",
+		      __FILE__, __LINE__);
+	    sprintf(buffer, "%c %s \"set ROI failed\"",
+		    FAIL_CHAR, ROI_CMD);
+	    cfht_logv(CFHT_MAIN, CFHT_DEBUG,
+		      "(%s:%d) SEND> %s", __FILE__, __LINE__, buffer);
+	    return;
+	 }
+      }
+      sprintf(buffer, "%c %s", PASS_CHAR, NULL_CMD);
+
+      return;
    }
+
    /*
     * If we made it this far, this is an unrecognized command request
     * from the client.
@@ -3437,6 +3601,144 @@ static void cleanup(void)
    }
 
    exit(EXIT_SUCCESS);
+}
+
+
+/*
+ * Load the guider details from the configuration file
+ */
+static PASSFAIL
+loadGuiderConfiguration(void) 
+{
+   char line[256];
+   FILE *infile;
+   char *p;
+
+   /*
+    * Open the file
+    */
+   if ((infile = fopen(GUIDER_CONFIG, "r")) == NULL) {
+      cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		"(%s:%d) unable to load config file %s : %s (errno=%d)",
+		__FILE__, __LINE__, GUIDER_CONFIG, strerror(errno), errno);
+      return FAIL;
+   }
+
+   /*
+    * Default the fields that will be read from the file to be invalid values
+    */
+   serv_info->guide_x0 = -1;
+   serv_info->guide_y0 = -1;
+   serv_info->null_x = -1;
+   serv_info->null_y = -1;
+   
+   /*
+    * Extract fields from the config file
+    */
+   while (fgets(line, sizeof(line), infile) != NULL) {
+      if ((p = strchr(line, '=')) == NULL) {
+	 continue;
+      }
+      *p = '\0';
+      if (strcasecmp(line, CONFIG_GUIDE_RASTER_X0) == 0) {
+	 char *stop_at = NULL;
+
+	 serv_info->guide_x0 = strtol(trim(++p), &stop_at, 10);
+	 if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) invalid Integer argument for %s in %s config"
+		      " file", __FILE__, __LINE__, CONFIG_GUIDE_RASTER_X0, 
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+	 if (serv_info->guide_x0 < 0 || 
+	     serv_info->guide_x0 > SIZE_X - GUIDE_SIZE_X) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) guide raster argument of %d for %s specified"
+		      " in %s is out of range", __FILE__, __LINE__, 
+		      serv_info->guide_x0, CONFIG_GUIDE_RASTER_X0,
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+      } else if (strcasecmp(line, CONFIG_GUIDE_RASTER_Y0) == 0) {
+	 char *stop_at = NULL;
+
+	 serv_info->guide_y0 = strtol(trim(++p), &stop_at, 10);
+	 if ((errno == ERANGE) || (errno == EINVAL) || (*stop_at != '\0')) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) invalid Integer argument for %s in %s config"
+		      " file", __FILE__, __LINE__, CONFIG_GUIDE_RASTER_Y0, 
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+	 if (serv_info->guide_y0 < 0 || 
+	     serv_info->guide_y0 > SIZE_Y - GUIDE_SIZE_Y) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) guide raster argument of %d for %s specified"
+		      " in %s is out of range", __FILE__, __LINE__, 
+		      serv_info->guide_y0, CONFIG_GUIDE_RASTER_Y0,
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+      } else if (strcasecmp(line, CONFIG_GUIDE_NULL_X) == 0) {
+	 char *stop_at = NULL;
+
+	 serv_info->null_x = strtof(trim(++p), &stop_at);
+	 if ((errno == ERANGE) || (*stop_at != '\0')) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) invalid numeric argument for %s in %s config"
+		      " file", __FILE__, __LINE__, CONFIG_GUIDE_NULL_X, 
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+	 if (serv_info->null_x < 0 || serv_info->null_x > SIZE_X) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) guide raster argument of %f for %s specified"
+		      " in %s is out of range", __FILE__, __LINE__, 
+		      serv_info->null_x, CONFIG_GUIDE_NULL_X,
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+      } else if (strcasecmp(line, CONFIG_GUIDE_NULL_Y) == 0) {
+	 char *stop_at = NULL;
+
+	 serv_info->null_y = strtof(trim(++p), &stop_at);
+	 if ((errno == ERANGE) || (*stop_at != '\0')) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) invalid numeric argument for %s in %s config"
+		      " file", __FILE__, __LINE__, CONFIG_GUIDE_NULL_Y, 
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+	 if (serv_info->null_y < 0 || serv_info->null_y > SIZE_X) {
+	    cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		      "(%s:%d) guide raster argument of %f for %s specified"
+		      " in %s is out of range", __FILE__, __LINE__, 
+		      serv_info->null_y, CONFIG_GUIDE_NULL_Y,
+		      GUIDER_CONFIG);
+	    return FAIL;
+	 }
+      }
+      else {
+	 cfht_logv(CFHT_MAIN, CFHT_WARN,
+		   "(%s:%d) unsupported configuration parameter %s", 
+		   __FILE__, __LINE__, line);
+      }
+   }
+
+   /*
+    * Make sure that the necessary fields have been updated
+    */
+   if (serv_info->guide_x0 == -1 || serv_info->guide_y0 == -1 ||
+       serv_info->null_x == -1 || serv_info->null_y == -1) {
+      cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		"(%s:%d) guider configuration file %s is missing required"
+		" parameters", __FILE__, __LINE__,
+		GUIDER_CONFIG);
+      return FAIL;
+   }
+
+   return PASS;
 }
 
 
@@ -3552,6 +3854,17 @@ int main(int argc, char* argv[])
     * Apply the debug level
     */
    edt_msg_set_level(edt_msg_default_handle(), edt_debug_level);
+
+   /*
+    * Load the guider configuration file in order to define the guiding 
+    * subraster and null positions
+    */
+   if (loadGuiderConfiguration() != PASS) {
+      cfht_logv(CFHT_MAIN, CFHT_ERROR,
+		"(%s:%d) unable to load and parse guider configuration file"
+		" %s", __FILE__, __LINE__, GUIDER_CONFIG);
+      exit(EXIT_FAILURE);
+   }
 
    /*
     * If porting this code to an application, be sure to free this and
@@ -3982,7 +4295,7 @@ int main(int argc, char* argv[])
                strftime(timestr, sizeof(timestr) - 1, "%Y%m%d-%H%M%S",
                         localtime(&(file_ts)));
 
-               sprintf(filenamePos, "/cfht/src/spirou/guider/raptorServ/%s_POS.csv",
+               sprintf(filenamePos, "%s/%s_POS.csv", DEBUG_FILE_PATH,
                        timestr);
 	       PosfilePtr = fopen(filenamePos, "w");
 	       if (PosfilePtr == NULL) {
@@ -3997,7 +4310,7 @@ int main(int argc, char* argv[])
 			"position output file", __FILE__, __LINE__);
 		  exit(EXIT_FAILURE);
 	       }
-               sprintf(filenameTim, "/cfht/src/spirou/guider/raptorServ/%s_TIM.csv",
+               sprintf(filenameTim, "%s/%s_TIM.csv", DEBUG_FILE_PATH,
                        timestr);
 	       TimfilePtr = fopen(filenameTim, "w");
 	       if (TimfilePtr == NULL) {
@@ -4103,8 +4416,16 @@ int main(int argc, char* argv[])
             /* In order to be compliant with the SExtractor convention: +0.5 */
             xc = xc + 0.5;
             yc = yc + 0.5;
-	    serv_info->guide_xoff=xc;
-	    serv_info->guide_yoff=yc;
+
+	    /*
+	     * Calculate a centroid based on the pixels in the guide raster.
+	     * Convert this to an offset in arcseconds taking into account 
+	     * the null position on the detector.
+	     */
+	    serv_info->guide_xoff 
+	       = (serv_info->guide_x0 + xc - serv_info->null_x) * PIXSCALE;
+	    serv_info->guide_yoff 
+	       = (serv_info->guide_y0 + yc - serv_info->null_y) * PIXSCALE;
 
 	    // fprintf(stderr, "guide_xoff : %.2f - "
 	    //                 "guide_yoff : %.2f (pixels)\n",
@@ -4112,8 +4433,8 @@ int main(int argc, char* argv[])
 
 #ifdef HAVE_ISU
 	    /* Converting pixel values to angle in arcsec */
-	    xangle=(serv_info->guide_xoff - serv_info->null_x)* PIXSCALE;
-	    yangle=(serv_info->guide_yoff - serv_info->null_y)* PIXSCALE;
+	    xangle = serv_info->guide_xoff;
+	    yangle = serv_info->guide_yoff;
 
 	    // fprintf(stderr, "xangle : %.3f - yangle : %.3f (mrad) ; %.3f\n", xangle, yangle, PIXSCALE);
 
@@ -4229,7 +4550,7 @@ int main(int argc, char* argv[])
 	    fprintf(stderr, "xoff:%.2f, yoff:%.2f pixels\n",
                     serv_info->guide_xoff, serv_info->guide_yoff);
             /* This is an additional display */
-	    fprintf(stderr, "Index; time (ms); Xstar (Pixel); Ystar (Pixel);"
+	    fprintf(stderr, "Index; time (ms); Xstar (arcsec); Ystar (arcsec);"
 	            "Xisu (mrad); Yisu (mrad);DeltaX (mrad);DeltaY (mrad)\n");
 	    fprintf(stderr, "%ld;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf\n",
 	            index, time_spent, 
@@ -4250,7 +4571,7 @@ int main(int argc, char* argv[])
 		      + (double) last_time.tv_usec * 1E-3 );
 	 /* 
 	  * Print out results to the csv file
-	  * Index; time (ms); Xstar (Pixel); Ystar (Pixel);
+	  * Index; time (ms); Xstar (arcsec); Ystar (arcsec);
 	  * Xisu (mrad); Yisu (mrad);DeltaX (mrad);DeltaY (mrad)
 	  */
 	 if (fprintf(PosfilePtr, "%ld;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf;%.2lf\n",
